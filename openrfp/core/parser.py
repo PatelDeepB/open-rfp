@@ -47,16 +47,61 @@ class RfpParser:
     }
 
     def parse_file(self, file_path: Path, buyer_name: str = "Client") -> RfpDocument:
-        """Parse an RFP from a local file path."""
+        """Parse an RFP from a local file path (PDF, DOCX, CSV, MD, TXT)."""
         path = Path(file_path)
         if not path.exists():
             raise DocumentNotFoundError(f"File '{path}' does not exist.")
-        try:
-            raw_text = path.read_text(encoding="utf-8")
-        except OSError as error:
-            raise ParseError(f"Failed to read file {path}: {error}") from error
+
+        raw_text = self._extract_text_from_file(path)
         title = path.stem.replace("_", " ").title()
         return self.parse_text(raw_text, title=title, buyer_name=buyer_name)
+
+    def _extract_text_from_file(self, path: Path) -> str:
+        """Extract plain text from supported document extensions."""
+        suffix = path.suffix.lower()
+        try:
+            if suffix == ".pdf":
+                return self._extract_pdf_text(path)
+            if suffix == ".docx":
+                return self._extract_docx_text(path)
+            if suffix == ".csv":
+                return self._extract_csv_text(path)
+            return path.read_text(encoding="utf-8")
+        except OSError as error:
+            raise ParseError(f"Failed to read file {path}: {error}") from error
+        except Exception as error:
+            raise ParseError(f"Failed to parse document {path}: {error}") from error
+
+    def _extract_pdf_text(self, path: Path) -> str:
+        """Extract text content from all pages of a PDF."""
+        import pypdf
+        reader = pypdf.PdfReader(str(path))
+        pages_text = [page.extract_text() or "" for page in reader.pages]
+        return "\n\n".join(pages_text)
+
+    def _extract_docx_text(self, path: Path) -> str:
+        """Extract paragraphs and table text from a DOCX file."""
+        import docx
+        doc = docx.Document(str(path))
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = " | ".join(cell.text.strip() for cell in row.cells if cell.text.strip())
+                if row_text:
+                    paragraphs.append(row_text)
+        return "\n\n".join(paragraphs)
+
+    def _extract_csv_text(self, path: Path) -> str:
+        """Convert CSV rows into requirement statements."""
+        import csv
+        lines: List[str] = ["# Imported Compliance Matrix"]
+        with open(path, "r", encoding="utf-8", errors="ignore") as file:
+            reader = csv.reader(file)
+            for row in reader:
+                joined = " - ".join(cell.strip() for cell in row if cell.strip())
+                if joined:
+                    lines.append(f"* {joined}")
+        return "\n".join(lines)
 
     def parse_text(
         self, raw_text: str, title: str = "Untitled RFP", buyer_name: str = "Client"

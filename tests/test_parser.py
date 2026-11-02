@@ -98,3 +98,37 @@ def test_should_extract_technical_tags_accurately():
     assert "AWS" in tags
     assert "REST" in tags
     assert "SOC 2" in tags
+
+
+def test_should_parse_docx_file(tmp_path):
+    """Verify parser extracts requirements from DOCX files."""
+    # Arrange
+    import docx
+    doc = docx.Document()
+    doc.add_heading("Architecture Requirements", level=1)
+    doc.add_paragraph("Vendor must provide 99.99% uptime SLA.")
+    docx_path = tmp_path / "tender.docx"
+    doc.save(str(docx_path))
+
+    # Act
+    parser = RfpParser()
+    rfp = parser.parse_file(docx_path, buyer_name="BankCorp")
+
+    # Assert
+    assert len(rfp.requirements) >= 1
+    assert "99.99%" in rfp.requirements[0].requirement_text
+
+
+def test_should_parse_csv_file(tmp_path):
+    """Verify parser extracts requirements from CSV matrix sheets."""
+    # Arrange
+    csv_path = tmp_path / "compliance.csv"
+    csv_path.write_text("ID,Requirement\nREQ-1,Must support SAML 2.0 SSO\nREQ-2,Must encrypt with AES-256")
+
+    # Act
+    parser = RfpParser()
+    rfp = parser.parse_file(csv_path, buyer_name="GovAgency")
+
+    # Assert
+    assert len(rfp.requirements) >= 1
+

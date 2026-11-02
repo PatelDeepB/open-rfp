@@ -26,7 +26,7 @@ def get_dashboard_html() -> str:
         body { background: var(--bg); color: var(--text-main); line-height: 1.5; padding: 24px; }
         .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
         .header h1 { font-size: 22px; font-weight: 700; color: #0284c7; }
-        .grid { display: grid; grid-template-columns: 350px 1fr; gap: 24px; }
+        .grid { display: grid; grid-template-columns: 360px 1fr; gap: 24px; }
         .card { background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
         .card h2 { font-size: 16px; margin-bottom: 12px; color: var(--text-main); }
         label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--text-muted); }
@@ -34,7 +34,8 @@ def get_dashboard_html() -> str:
         textarea { height: 160px; font-family: monospace; resize: vertical; }
         button { background: var(--primary); color: white; border: none; padding: 10px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; width: 100%; transition: background 0.15s; }
         button:hover { background: var(--primary-hover); }
-        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-main); width: auto; padding: 6px 12px; font-size: 12px; }
+        .btn-outline { background: white; border: 1px solid var(--border); color: var(--text-main); width: auto; padding: 6px 12px; font-size: 12px; cursor: pointer; text-decoration: none; display: inline-block; border-radius: 6px; font-weight: 600; }
+        .btn-outline:hover { background: #f1f5f9; }
         .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
         .stat-card { background: #f1f5f9; padding: 12px; border-radius: 6px; text-align: center; }
         .stat-val { font-size: 20px; font-weight: 700; }
@@ -53,12 +54,13 @@ def get_dashboard_html() -> str:
         .filter-row { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
         .tab-btn { background: #e2e8f0; color: var(--text-main); border: none; padding: 4px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; }
         .tab-btn.active { background: var(--primary); color: white; }
+        .action-bar { display: flex; gap: 8px; margin-top: 12px; }
     </style>
 </head>
 <body>
     <div class="header">
         <h1>OpenRFP Agent</h1>
-        <div><span style="font-size:12px; color:var(--text-muted);">Enterprise Autonomous Response System</span></div>
+        <div><span style="font-size:12px; color:var(--text-muted);">Autonomous Proposal & RFP Response System</span></div>
     </div>
     <div class="grid">
         <div class="card">
@@ -67,8 +69,10 @@ def get_dashboard_html() -> str:
             <input type="text" id="buyerName" value="Acme Enterprise" placeholder="e.g. Acme Corp">
             <label for="rfpTitle">RFP Solicitation Title</label>
             <input type="text" id="rfpTitle" value="Global Cloud Security Platform" placeholder="e.g. Cloud Security RFP">
-            <label for="rfpText">Solicitation Text or Markdown</label>
-            <textarea id="rfpText" placeholder="Paste RFP requirements here..."># Section 1: Security & Compliance
+            <label for="fileUpload">Load Document (TXT / MD / CSV)</label>
+            <input type="file" id="fileUpload" onchange="handleFileSelect(event)">
+            <label for="rfpText">Solicitation Text</label>
+            <textarea id="rfpText" placeholder="Paste requirements here..."># Section 1: Security & Compliance
 * REQ-001: Vendor must provide SOC 2 Type II and ISO 27001 certifications.
 * REQ-002: System must encrypt data at rest using AES-256 and TLS 1.3 in transit.
 * REQ-003: Must support SAML 2.0 and SCIM user provisioning.
@@ -87,19 +91,21 @@ def get_dashboard_html() -> str:
                     <div class="stat-card"><div class="stat-val val-red" id="redVal">0</div><div class="stat-label">Gaps (Red)</div></div>
                 </div>
                 <div style="font-size:13px; color:var(--text-muted); margin-bottom:8px;" id="execSummary"></div>
+                <div class="action-bar" id="exportBar"></div>
             </div>
             <div class="card">
                 <div class="filter-row">
-                    <h2>Compliance Matrix</h2>
+                    <h2 id="viewTitle">Compliance Matrix</h2>
                     <div style="margin-left:auto; display:flex; gap:6px;">
                         <button class="tab-btn active" onclick="setFilter('ALL')">All</button>
                         <button class="tab-btn" onclick="setFilter('GREEN')">Green</button>
                         <button class="tab-btn" onclick="setFilter('AMBER')">Amber</button>
                         <button class="tab-btn" onclick="setFilter('RED')">Red</button>
+                        <button class="tab-btn" onclick="toggleTasksView()">SME Tasks (<span id="taskCount">0</span>)</button>
                     </div>
                 </div>
                 <table id="matrixTable">
-                    <thead><tr><th>ID</th><th>Requirement</th><th>Confidence</th><th>Draft Response</th></tr></thead>
+                    <thead id="tableHead"><tr><th>ID</th><th>Requirement</th><th>Confidence</th><th>Draft Response</th></tr></thead>
                     <tbody id="matrixBody"><tr><td colspan="4" style="text-align:center; color:var(--text-muted);">Paste or upload an RFP on the left to generate the matrix.</td></tr></tbody>
                 </table>
             </div>
@@ -107,7 +113,22 @@ def get_dashboard_html() -> str:
     </div>
     <script>
         let currentDrafts = [];
+        let currentTasks = [];
         let activeFilter = 'ALL';
+        let isTaskView = false;
+        let currentRfpId = '';
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                document.getElementById('rfpText').value = evt.target.result;
+                document.getElementById('rfpTitle').value = file.name.replace(/\\.[^/.]+$/, "");
+            };
+            reader.readAsText(file);
+        }
+
         async function handleProcessRfp() {
             const btn = document.getElementById('processBtn');
             btn.innerText = "Analyzing & Drafting...";
@@ -131,24 +152,70 @@ def get_dashboard_html() -> str:
                 btn.disabled = false;
             }
         }
+
         function renderResults(data) {
+            currentRfpId = data.rfp_id;
             document.getElementById('metricsCard').style.display = 'block';
             document.getElementById('scoreVal').innerText = data.win_probability_score + '%';
             document.getElementById('greenVal').innerText = data.gap_report.green_count;
             document.getElementById('amberVal').innerText = data.gap_report.amber_count;
             document.getElementById('redVal').innerText = data.gap_report.red_count;
             document.getElementById('execSummary').innerText = data.executive_summary;
+            document.getElementById('taskCount').innerText = data.gap_report.tasks.length;
             currentDrafts = data.drafts || [];
+            currentTasks = data.gap_report.tasks || [];
+            
+            const exportBar = document.getElementById('exportBar');
+            exportBar.innerHTML = `
+                <a class="btn-outline" href="/api/v1/proposal/${currentRfpId}/export/markdown" target="_blank">Download Markdown</a>
+                <a class="btn-outline" href="/api/v1/proposal/${currentRfpId}/export/csv" target="_blank">Download CSV Matrix</a>
+                <a class="btn-outline" href="/api/v1/proposal/${currentRfpId}/export/html" target="_blank">View Executive HTML</a>
+            `;
             applyFilter();
         }
+
+        function toggleTasksView() {
+            isTaskView = !isTaskView;
+            document.getElementById('viewTitle').innerText = isTaskView ? "SME Department Action Tasks" : "Compliance Matrix";
+            if (isTaskView) {
+                renderTasks();
+            } else {
+                applyFilter();
+            }
+        }
+
+        function renderTasks() {
+            const thead = document.getElementById('tableHead');
+            thead.innerHTML = '<tr><th>Task ID</th><th>Req ID</th><th>Department</th><th>Question / Directive</th></tr>';
+            const tbody = document.getElementById('matrixBody');
+            tbody.innerHTML = '';
+            if (currentTasks.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--green);">Zero gaps! All requirements verified.</td></tr>';
+                return;
+            }
+            currentTasks.forEach(t => {
+                const row = document.createElement('tr');
+                row.innerHTML = `<td><strong>${t.task_id}</strong></td>
+                    <td>${t.requirement_id}</td>
+                    <td><span class="badge badge-amber">${t.department}</span></td>
+                    <td>${t.question}</td>`;
+                tbody.appendChild(row);
+            });
+        }
+
         function setFilter(filter) {
+            isTaskView = false;
+            document.getElementById('viewTitle').innerText = "Compliance Matrix";
             activeFilter = filter;
             document.querySelectorAll('.tab-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.innerText.toUpperCase() === filter);
             });
             applyFilter();
         }
+
         function applyFilter() {
+            const thead = document.getElementById('tableHead');
+            thead.innerHTML = '<tr><th>ID</th><th>Requirement</th><th>Confidence</th><th>Draft Response</th></tr>';
             const tbody = document.getElementById('matrixBody');
             tbody.innerHTML = '';
             const filtered = currentDrafts.filter(d => {

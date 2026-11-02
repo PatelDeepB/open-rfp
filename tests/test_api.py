@@ -126,3 +126,76 @@ def test_should_return_404_when_rfp_not_found(client):
 
     # Assert
     assert response.status_code == 404
+
+
+def test_should_list_and_get_rfp_by_id(client):
+    """Verify listing and retrieving specific RFP."""
+    # Arrange
+    client.post("/api/v1/rfp/parse", json={
+        "title": "Banking Tender",
+        "buyer_name": "Chase Bank",
+        "raw_text": "# Security\n- Must have SOC 2."
+    })
+
+    # Act
+    list_res = client.get("/api/v1/rfp")
+    get_res = client.get("/api/v1/rfp/banking-tender")
+
+    # Assert
+    assert list_res.status_code == 200
+    assert len(list_res.json()) >= 1
+    assert get_res.status_code == 200
+    assert get_res.json()["id"] == "banking-tender"
+
+
+def test_should_list_knowledge_items(client):
+    """Verify listing all knowledge items."""
+    # Arrange
+    client.post("/api/v1/knowledge", json={
+        "id": "KB-LIST-1",
+        "title": "Encryption Item",
+        "category": RequirementCategory.SECURITY_COMPLIANCE.value,
+        "content": "All data encrypted at rest.",
+    })
+
+    # Act
+    res = client.get("/api/v1/knowledge")
+
+    # Assert
+    assert res.status_code == 200
+    assert len(res.json()) >= 1
+
+
+def test_should_export_all_formats_and_handle_errors(client):
+    """Verify CSV, HTML, JSON export and 400 on invalid format."""
+    # Arrange
+    draft_res = client.post("/api/v1/rfp/parse-and-draft", json={
+        "title": "Export Test RFP",
+        "buyer_name": "Global Corp",
+        "raw_text": "# Requirements\n- Vendor must support 99.99% uptime."
+    })
+    rfp_id = draft_res.json()["rfp_id"]
+
+    # Act & Assert - Proposal retrieval
+    prop_res = client.get(f"/api/v1/proposal/{rfp_id}")
+    assert prop_res.status_code == 200
+
+    # Act & Assert - CSV
+    csv_res = client.get(f"/api/v1/proposal/{rfp_id}/export/csv")
+    assert csv_res.status_code == 200
+
+    # Act & Assert - HTML
+    html_res = client.get(f"/api/v1/proposal/{rfp_id}/export/html")
+    assert html_res.status_code == 200
+
+    # Act & Assert - JSON
+    json_res = client.get(f"/api/v1/proposal/{rfp_id}/export/json")
+    assert json_res.status_code == 200
+
+    # Act & Assert - Invalid format
+    bad_res = client.get(f"/api/v1/proposal/{rfp_id}/export/unsupported")
+    assert bad_res.status_code == 400
+
+    # Act & Assert - Missing proposal export
+    missing_res = client.get("/api/v1/proposal/non-existent/export/markdown")
+    assert missing_res.status_code == 404

@@ -3,6 +3,7 @@
 from typing import List, Optional
 from openrfp.config import settings
 from openrfp.core.gap_analyzer import GapAnalyzer
+from openrfp.core.llm import LlmClient
 from openrfp.core.retriever import KnowledgeRetriever
 from openrfp.models import (
     ConfidenceLevel,
@@ -21,6 +22,7 @@ class ProposalDrafter:
     def __init__(self, retriever: KnowledgeRetriever) -> None:
         self.retriever = retriever
         self.gap_analyzer = GapAnalyzer()
+        self.llm = LlmClient()
 
     def draft_proposal(
         self, rfp: RfpDocument, custom_notes: Optional[str] = None
@@ -65,10 +67,9 @@ class ProposalDrafter:
 
         assumptions: List[str] = []
         if confidence == ConfidenceLevel.GREEN:
-            answer = (
-                f"Yes, we fully satisfy this requirement. Grounded in our verified "
-                f"specifications ({', '.join(cited_sources)}): {top_match.item.content}"
-            )
+            facts = [r.item.content for r in results[:2]] if results else []
+            answer, extra_assumptions = self.llm.synthesize_response(req.requirement_text, buyer_name, facts)
+            assumptions.extend(extra_assumptions)
         elif confidence == ConfidenceLevel.AMBER:
             assumptions.append("Requires alignment on standard multi-tenant vs dedicated VPC.")
             matched_summary = top_match.item.content if top_match else "Partial reference available."
