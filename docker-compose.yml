@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  open-rfp:
+    build: .
+    container_name: open-rfp
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENRFP_ENV=production
+      - OPENRFP_DEBUG=false
+      - OPENRFP_HOST=0.0.0.0
+      - OPENRFP_PORT=8000
+    volumes:
+      - rfp_data:/app/data/storage
+    restart: unless-stopped
+
+volumes:
+  rfp_data:
+    driver: local
